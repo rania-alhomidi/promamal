@@ -195,18 +195,18 @@ def generate_qr_image(student_id, qr_code):
 @app.route('/regenerate-all-qrs')
 @login_required
 def regenerate_all_qrs():
-  conn = get_db_connection()
-  students = conn.execute('SELECT id, qr_code FROM students').fetchall()
-  conn.close()
+    conn = get_db_connection()
+    students = conn.execute('SELECT id, qr_code FROM students').fetchall()
+    conn.close()
 
-  count = 0
-  for student in students:
-    if student['qr_code']:
-      generate_qr_image(student['id'], student['qr_code'])
-      count += 1
+    count = 0
+    for student in students:
+        if student['qr_code']:
+            generate_qr_image(student['id'], student['qr_code'])
+            count += 1
 
-  flash(f'تمت إعادة توليد رموز QR لـ {count} طالب بنجاح!', 'success')
-  return redirect(url_for('dashboard'))
+    flash(f'تمت إعادة توليد رموز QR لـ {count} طالب بنجاح!', 'success')
+    return redirect(url_for('dashboard'))
 
 def get_student_summary(student_id):
     conn = get_db_connection()
