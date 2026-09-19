@@ -1,0 +1,5 @@
+.venv/
+database.db
+students_report.pdf
+students_report.xlsx
+__pycache__/

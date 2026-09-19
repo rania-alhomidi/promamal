@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}التقارير{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>التقارير</h2>
+  <div>
+    <a href="{{ url_for('export_excel') }}" class="btn btn-success me-2">تصدير Excel</a>
+    <a href="{{ url_for('export_pdf') }}" class="btn btn-danger">تصدير PDF</a>
+  </div>
+</div>
+
+<div class="card shadow-sm rounded-4">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table align-middle text-center">
+        <thead>
+          <tr>
+            <th>اسم الطالب</th>
+            <th>المستوى</th>
+            <th>القسم</th>
+            <th>التقييم</th>
+            <th>عدد الحوادث</th>
+            <th>إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.full_name }}</td>
+            <td>{{ row.level }}</td>
+            <td>{{ row.department or 'غير محدد' }}</td>
+            <td>{{ row.score or 0 }}</td>
+            <td>{{ row.damage_count or 0 }}</td>
+            <td>
+              <div class="d-flex gap-2 justify-content-center">
+                <a href="{{ url_for('student_detail', student_id=row.id) }}" class="btn btn-sm btn-outline-primary">تفاصيل</a>
+                <form method="POST" action="{{ url_for('delete_student', student_id=row.id) }}" onsubmit="return confirm('هل أنت متأكد من حذف هذا الطالب؟ سيتم حذف التقييمات والصور المتعلقة.')">
+                  <button class="btn btn-sm btn-outline-danger">حذف</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

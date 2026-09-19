@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}إضافة طالب{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card shadow-sm rounded-4">
+      <div class="card-body">
+        <h3 class="mb-4">إضافة طالب جديد</h3>
+
+        <form method="POST" enctype="multipart/form-data">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">اسم الطالب</label>
+              <input type="text" name="full_name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">رقم الطالب</label>
+              <input type="text" name="student_number" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">المستوى</label>
+              <select name="level" class="form-select" required>
+                <option value="">اختر المستوى</option>
+                <option value="1">المستوى الأول</option>
+                <option value="2">المستوى الثاني</option>
+                <option value="3">المستوى الثالث</option>
+                <option value="4">المستوى الرابع</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">التخصص</label>
+              <select name="department" class="form-select">
+                <option value="">اختر التخصص</option>
+                <option value="فني اسنان">فني اسنان</option>
+                <option value="طب اسنان">طب اسنان</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">رقم الهاتف</label>
+              <input type="text" name="phone" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">صورة الطالب</label>
+              <input type="file" name="photo" class="form-control" accept="image/*">
+            </div>
+          </div>
+
+          <div class="mt-4 text-end">
+            <button type="submit" class="btn btn-primary px-4">حفظ الطالب</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

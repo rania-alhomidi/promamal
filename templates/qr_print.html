@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}طباعة QR{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  {% for student in students %}
+  <div class="col-md-4 col-lg-3">
+    <div class="card shadow-sm rounded-4 qr-card">
+      <!-- <div class="card-body text-center">
+        <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" class="qr-print-image" alt="QR{{ student.full_name }}">
+        <div class="mt-3 fw-bold">{{ student.full_name }}</div>
+        <small class="text-muted">{{ student.student_number }}</small>
+      </div> -->
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>طباعة رموز QR للطلاب</h2>
+  <div class="d-flex gap-2">
+    <form method="get" action="{{ url_for('qr_print_page') }}" class="d-flex gap-2 align-items-center">
+      <label class="my-auto">اختر المستوى:</label>
+      <select name="level" class="form-select">
+        <option value="">المستوى</option>
+        <option value="1" {% if selected_level=='1' %}selected{% endif %}>المستوى الأول</option>
+        <option value="2" {% if selected_level=='2' %}selected{% endif %}>المستوى الثاني</option>
+        <option value="3" {% if selected_level=='3' %}selected{% endif %}>المستوى الثالث</option>
+        <option value="4" {% if selected_level=='4' %}selected{% endif %}>المستوى الرابع</option>
+      </select>
+      <button class="btn btn-outline-primary">تصفية</button>
+    </form>
+
+    <form method="get" action="{{ url_for('export_qr_bundle') }}" class="d-flex gap-2 align-items-center">
+      <input type="hidden" name="level" value="{{ selected_level }}">
+      <button class="btn btn-primary">تصدير PDF لمستوى محدد</button>
+    </form>
+  </div>
+</div>
+
+<div class="row g-4">
+  {% for student in students %}
+  <div class="col-md-4 col-lg-3">
+    <div class="card shadow-sm rounded-4 qr-card">
+      <div class="card-body text-center">
+        <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" class="qr-print-image" alt="QR{{ student.full_name }}">
+        <div class="mt-3 fw-bold">{{ student.full_name }}</div>
+        <small class="text-muted">{{ student.student_number }}</small>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

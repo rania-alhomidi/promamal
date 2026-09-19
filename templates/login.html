@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}تسجيل الدخول{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center align-items-center min-vh-100">
+  <div class="col-lg-6">
+    <div class="university-mark">
+      <div class="shield-shape">
+        <div class="shield-inner">
+          <img src="{{ url_for('static', filename='image/us.png') }}" alt="Shield" class="img-fluid">
+        </div>
+      </div>
+      <div class="title-stack">
+        <div class="arabic-title">جامعة الحكمة</div>
+        <div class="english-title">Al-hikma University</div>
+      </div>
+    </div>
+
+    <div class="auth-card mt-4">
+      <div class="text-center mb-4">
+        <!-- <div class="logo-circle"></div> -->
+        <h2>نظام تقييم الطلاب</h2>
+        <p>تسجيل الدخول للمشرف</p>
+      </div>
+
+      <form method="POST">
+        <div class="mb-3">
+          <label for="username" class="form-label">اسم المستخدم</label>
+          <input type="text" id="username" name="username" class="form-control" required>
+        </div>
+
+        <div class="mb-3">
+          <label for="password" class="form-label">كلمة المرور</label>
+          <input type="password" id="password" name="password" class="form-control" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100">دخول</button>
+      </form>
+
+      <div class="login-note mt-4">
+        <small>اسم المستخدم الافتراضي: admin</small><br>
+        <small>كلمة المرور الافتراضية: admin123</small>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

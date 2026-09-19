@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% block title %}تفاصيل الطالب{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{{ url_for('students') }}" class="btn btn-outline-primary">رجوع</a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-4">
+    <div class="card shadow-sm rounded-4 h-100">
+      <div class="card-body text-center">
+        {% set photo = '/static/uploads/' + student.photo if student.photo and student.photo != 'default_student.png' else '/static/default_student.png' %}
+        <img src="{{ photo }}" alt="student image" class="student-large-img">
+        <h3 class="mt-3">{{ student.full_name }}</h3>
+        <p class="text-muted mb-1">رقم الطالب: {{ student.student_number }}</p>
+        <p class="text-muted mb-1">المستوى: {{ student.level }}</p>
+        <p class="text-muted mb-1">القسم: {{ student.department or 'غير محدد' }}</p>
+        <p class="text-muted mb-3">الهاتف: {{ student.phone or 'غير محدد' }}</p>
+
+        {% if student.qr_code %}
+        <div class="qr-box">
+          <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" alt="QR code" class="qr-image">
+          <p class="small mt-2">{{ student.qr_code }}</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="card shadow-sm rounded-4 mb-4">
+      <div class="card-body">
+        <h4>التقييم الحالي</h4>
+        {% if latest_eval %}
+        <div class="score-pill">{{ latest_eval.score }}/100</div>
+        <p class="mt-3"><strong>التقييم:</strong> {{ latest_eval.rating }}</p>
+        <p><strong>الملاحظة:</strong> {{ latest_eval.notes or 'لا توجد ملاحظات' }}</p>
+        <p><strong>التاريخ:</strong> {{ latest_eval.evaluation_date }}</p>
+        {% else %}
+        <p>لا توجد تقييمات حتى الآن.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm rounded-4 mb-4">
+      <div class="card-body">
+        <h4>إضافة تقييم</h4>
+        <form method="POST" action="{{ url_for('evaluate_student', student_id=student.id) }}">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">الدرجة</label>
+              <select name="score" class="form-select" required>
+                <option value="100">ممتاز - 100</option>
+                <option value="70">جيد - 70</option>
+                <option value="50">متوسط - 50</option>
+                <option value="30">ضعيف - 30</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">السنة الدراسية</label>
+              <input type="text" name="academic_year" class="form-control" value="2026-2027">
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label">ملاحظة المشرف</label>
+            <textarea name="notes" rows="3" class="form-control"></textarea>
+          </div>
+
+          <div class="mt-3 text-end">
+            <button class="btn btn-primary">حفظ التقييم</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card shadow-sm rounded-4">
+      <div class="card-body">
+        <h4>إضافة ضرر / حادث</h4>
+        <form method="POST" action="{{ url_for('report_damage', student_id=student.id) }}" enctype="multipart/form-data">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">نوع الضرر</label>
+              <select name="damage_type" class="form-select" required>
+                <option value="">اختر</option>
+                <option value="تخريب">تخريب</option>
+                <option value="كسر">كسر</option>
+                <option value="إهمال">إهمال</option>
+                <option value="تلف">تلف</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">صورة الضرر</label>
+              <input type="file" name="damage_photo" class="form-control" accept="image/*">
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label">تفاصيل الضرر</label>
+            <textarea name="description" rows="3" class="form-control"></textarea>
+          </div>
+
+          <div class="mt-3 text-end">
+            <button class="btn btn-danger">حفظ الضرر</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mt-4">
+  <div class="col-lg-6">
+    <div class="card shadow-sm rounded-4">
+      <div class="card-body">
+        <h4>سجل التقييمات</h4>
+        {% if evaluations %}
+        <div class="list-group">
+          {% for item in evaluations %}
+          <div class="list-group-item">
+            <strong>{{ item.rating }}</strong> - {{ item.score }}/100
+            <div class="small text-muted">{{ item.evaluation_date }}</div>
+            <div>{{ item.notes or 'لا توجد ملاحظات' }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>لا توجد تقييمات.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm rounded-4">
+      <div class="card-body">
+        <h4>سجل الحوادث</h4>
+        {% if damage_reports %}
+        <div class="list-group">
+          {% for item in damage_reports %}
+          <div class="list-group-item">
+            <strong>{{ item.damage_type }}</strong>
+            <div>{{ item.description or 'لا توجد تفاصيل' }}</div>
+            <div class="small text-muted">{{ item.report_date }}</div>
+            {% if item.damage_photo %}
+            <img src="{{ '/static/uploads/' + item.damage_photo }}" class="damage-image mt-2">
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>لا توجد حوادث مسجلة.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
