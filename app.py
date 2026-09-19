@@ -483,6 +483,7 @@ def edit_student(student_id):
     conn = get_db_connection()
     student = conn.execute('SELECT * FROM students WHERE id = ?', (student_id,)).fetchone()
     if not student:
+        
         conn.close()
         flash('الطالب غير موجود', 'danger')
         return redirect(url_for('students'))
