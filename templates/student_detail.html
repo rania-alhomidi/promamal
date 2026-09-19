@@ -20,7 +20,9 @@
 
         {% if student.qr_code %}
         <div class="qr-box">
-          <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" alt="QR code" class="qr-image">
+          <a href="{{ url_for('scan_qr', qr_code=student.qr_code) }}">
+            <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" alt="QR code" class="qr-image">
+          </a>
           <p class="small mt-2">{{ student.qr_code }}</p>
         </div>
         {% endif %}

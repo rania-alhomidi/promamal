@@ -169,14 +169,44 @@ def save_upload(file, folder):
 
 
 def generate_qr_image(student_id, qr_code):
-    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(qr_code)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color='black', back_color='white')
-    file_name = f'student_{student_id}_qr.png'
-    img.save(os.path.join(QR_FOLDER, file_name))
-    return file_name
+  # 1. تحديد النطاق الأساسي (في الاستضافة أو المحلي)
+  # عند النشر على Render سيتم جلب رابط الموقع تلقائياً
+  try:
+    # إنشاء رابط كامل للوصول لصفحة الطالب عبر المسح
+    data_to_encode = url_for('scan_qr', qr_code=qr_code, _external=True)
+  except Exception:
+    data_to_encode = qr_code
 
+  # 2. إنشاء وتوليد صورة الـ QR
+  qr = qrcode.QRCode(
+      version=1,
+      error_correction=qrcode.constants.ERROR_CORRECT_L,
+      box_size=10,
+      border=4,
+  )
+  qr.add_data(data_to_encode)
+  qr.make(fit=True)
+
+  img = qr.make_image(fill_color='black', back_color='white')
+  file_name = f'student_{student_id}_qr.png'
+  img.save(os.path.join(QR_FOLDER, file_name))
+  return file_name   
+
+@app.route('/regenerate-all-qrs')
+@login_required
+def regenerate_all_qrs():
+  conn = get_db_connection()
+  students = conn.execute('SELECT id, qr_code FROM students').fetchall()
+  conn.close()
+
+  count = 0
+  for student in students:
+    if student['qr_code']:
+      generate_qr_image(student['id'], student['qr_code'])
+      count += 1
+
+  flash(f'تمت إعادة توليد رموز QR لـ {count} طالب بنجاح!', 'success')
+  return redirect(url_for('dashboard'))
 
 def get_student_summary(student_id):
     conn = get_db_connection()
@@ -197,11 +227,12 @@ def ensure_arabic_font():
         return True
 
     candidates = [
-        r'C:\\Windows\\Fonts\\arial.ttf',
-        r'C:\\Windows\\Fonts\\tahoma.ttf',
-        r'C:\\Windows\\Fonts\\times.ttf',
+        r'C:\Windows\Fonts\arial.ttf',
+        r'C:\Windows\Fonts\tahoma.ttf',
+        r'C:\Windows\Fonts\times.ttf',
         r'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
     ]
+
     for p in candidates:
         if os.path.exists(p):
             try:
@@ -483,7 +514,6 @@ def edit_student(student_id):
     conn = get_db_connection()
     student = conn.execute('SELECT * FROM students WHERE id = ?', (student_id,)).fetchone()
     if not student:
-        
         conn.close()
         flash('الطالب غير موجود', 'danger')
         return redirect(url_for('students'))
