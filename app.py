@@ -168,26 +168,23 @@ def save_upload(file, folder):
     return unique_name
 
 def generate_qr_image(student_id, qr_code):
-    try:
-        # توليد رابط كامل للوصول لصفحة الطالب مباشرة
-        data_to_encode = url_for('scan_qr', qr_code=qr_code, _external=True)
-    except Exception:
-        data_to_encode = qr_code
+  # استخدام نطاق موقعك الفعلي على Render مباشرة لحل مشكلة البروكسي
+  base_url = 'https://projectran.onrender.com'
+  data_to_encode = f'{base_url}/scan/{qr_code}'
 
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(data_to_encode)
-    qr.make(fit=True)
+  qr = qrcode.QRCode(
+      version=1,
+      error_correction=qrcode.constants.ERROR_CORRECT_L,
+      box_size=10,
+      border=4,
+  )
+  qr.add_data(data_to_encode)
+  qr.make(fit=True)
 
-    img = qr.make_image(fill_color='black', back_color='white')
-    file_name = f'student_{student_id}_qr.png'
-    img.save(os.path.join(QR_FOLDER, file_name))
-    return file_name
-
+  img = qr.make_image(fill_color='black', back_color='white')
+  file_name = f'student_{student_id}_qr.png'
+  img.save(os.path.join(QR_FOLDER, file_name))
+  return file_name
 
 @app.route('/regenerate-all-qrs')
 @login_required
@@ -613,23 +610,19 @@ def reports():
     return render_template('reports.html', rows=rows)
 
 
+
+# احذفي @login_required من فوق هذه الدالة لكي يتمكن الهاتف من قراءة الرابط
 @app.route('/scan/<qr_code>')
-@login_required
 def scan_qr(qr_code):
-    conn = get_db_connection()
-    student = conn.execute('SELECT * FROM students WHERE qr_code = ?', (qr_code,)).fetchone()
-    conn.close()
-    if student:
-        return redirect(url_for('student_detail', student_id=student['id']))
-    flash('رمز QR غير موجود', 'danger')
-    return redirect(url_for('dashboard'))
-
-
-@app.route('/scanner')
-@login_required
-def scanner_page():
-    return render_template('scanner.html')
-
+  conn = get_db_connection()
+  student = conn.execute(
+      'SELECT * FROM students WHERE qr_code = ?', (qr_code,)
+  ).fetchone()
+  conn.close()
+  if student:
+    return redirect(url_for('student_detail', student_id=student['id']))
+  flash('رمز QR غير موجود', 'danger')
+  return redirect(url_for('dashboard'))
 
 @app.route('/qr-print')
 @login_required
@@ -857,16 +850,15 @@ def student_qr_code_image(student_id):
   if not student or not student['qr_code']:
     return 'Not Found', 404
 
-  # إنشاء الرابط المباشر لصفحة المسح
-  target_url = url_for('scan_qr', qr_code=student['qr_code'], _external=True)
+  # رابط مسار الاستجابة الصريح والرسمي
+  base_url = 'https://projectran.onrender.com'
+  target_url = f"{base_url}/scan/{student['qr_code']}"
 
-  # توليد صورة الـ QR في الذاكرة مباشرة
   qr = qrcode.QRCode(version=1, box_size=10, border=4)
   qr.add_data(target_url)
   qr.make(fit=True)
   img = qr.make_image(fill_color='black', back_color='white')
 
-  # تحويل الصورة إلى Bytes لإرسالها للمتصفح
   img_io = BytesIO()
   img.save(img_io, 'PNG')
   img_io.seek(0)
@@ -891,7 +883,6 @@ def init_db():
             print("QR Sync Error:", e)
 
     conn.close()
-
 
 if __name__ == '__main__':
     app.run(debug=True)
