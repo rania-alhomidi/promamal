@@ -846,6 +846,33 @@ def export_qr_bundle():
     buffer.seek(0)
     return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name='student_qr_bundle.pdf')
 
+@app.route('/student/<int:student_id>/qr.png')
+def student_qr_code_image(student_id):
+  conn = get_db_connection()
+  student = conn.execute(
+      'SELECT qr_code FROM students WHERE id = ?', (student_id,)
+  ).fetchone()
+  conn.close()
+
+  if not student or not student['qr_code']:
+    return 'Not Found', 404
+
+  # إنشاء الرابط المباشر لصفحة المسح
+  target_url = url_for('scan_qr', qr_code=student['qr_code'], _external=True)
+
+  # توليد صورة الـ QR في الذاكرة مباشرة
+  qr = qrcode.QRCode(version=1, box_size=10, border=4)
+  qr.add_data(target_url)
+  qr.make(fit=True)
+  img = qr.make_image(fill_color='black', back_color='white')
+
+  # تحويل الصورة إلى Bytes لإرسالها للمتصفح
+  img_io = BytesIO()
+  img.save(img_io, 'PNG')
+  img_io.seek(0)
+
+  return send_file(img_io, mimetype='image/png')
+
 
 def init_db():
     conn = get_db_connection()

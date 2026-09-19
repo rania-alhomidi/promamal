@@ -43,7 +43,7 @@
   <div class="col-md-4 col-lg-3">
     <div class="card shadow-sm rounded-4 qr-card">
       <div class="card-body text-center">
-        <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" class="qr-print-image" alt="QR{{ student.full_name }}">
+<img src="{{ url_for('student_qr_code_image', student_id=student.id) }}" class="qr-print-image" alt="QR {{ student.full_name }}">
         <div class="mt-3 fw-bold">{{ student.full_name }}</div>
         <small class="text-muted">{{ student.student_number }}</small>
       </div>
