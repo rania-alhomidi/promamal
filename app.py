@@ -167,30 +167,27 @@ def save_upload(file, folder):
     file.save(file_path)
     return unique_name
 
-
 def generate_qr_image(student_id, qr_code):
-  # 1. تحديد النطاق الأساسي (في الاستضافة أو المحلي)
-  # عند النشر على Render سيتم جلب رابط الموقع تلقائياً
-  try:
-    # إنشاء رابط كامل للوصول لصفحة الطالب عبر المسح
-    data_to_encode = url_for('scan_qr', qr_code=qr_code, _external=True)
-  except Exception:
-    data_to_encode = qr_code
+    try:
+        # توليد رابط كامل للوصول لصفحة الطالب مباشرة
+        data_to_encode = url_for('scan_qr', qr_code=qr_code, _external=True)
+    except Exception:
+        data_to_encode = qr_code
 
-  # 2. إنشاء وتوليد صورة الـ QR
-  qr = qrcode.QRCode(
-      version=1,
-      error_correction=qrcode.constants.ERROR_CORRECT_L,
-      box_size=10,
-      border=4,
-  )
-  qr.add_data(data_to_encode)
-  qr.make(fit=True)
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(data_to_encode)
+    qr.make(fit=True)
 
-  img = qr.make_image(fill_color='black', back_color='white')
-  file_name = f'student_{student_id}_qr.png'
-  img.save(os.path.join(QR_FOLDER, file_name))
-  return file_name   
+    img = qr.make_image(fill_color='black', back_color='white')
+    file_name = f'student_{student_id}_qr.png'
+    img.save(os.path.join(QR_FOLDER, file_name))
+    return file_name
+
 
 @app.route('/regenerate-all-qrs')
 @login_required
@@ -850,9 +847,24 @@ def export_qr_bundle():
     return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name='student_qr_bundle.pdf')
 
 
-init_db()
+def init_db():
+    conn = get_db_connection()
+    # إنشاء الجداول إذا لم تكن موجودة
+    # ... (تظل باقي استعلامات CREATE TABLE كما هي لديكِ) ...
+    conn.commit()
+
+    # تحديث كل الـ QRs تلقائياً عند التشغيل
+    with app.app_context():
+        try:
+            students = conn.execute('SELECT id, qr_code FROM students').fetchall()
+            for student in students:
+                if student['qr_code']:
+                    generate_qr_image(student['id'], student['qr_code'])
+        except Exception as e:
+            print("QR Sync Error:", e)
+
+    conn.close()
 
 
 if __name__ == '__main__':
     app.run(debug=True)
-    
