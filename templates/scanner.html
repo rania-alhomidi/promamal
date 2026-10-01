@@ -21,6 +21,32 @@
   const qrReader = new Html5Qrcode("reader");
   const status = document.getElementById('scan-status');
 
+  function redirectFromQr(decodedText) {
+    const text = decodedText.trim();
+    let qrCode = text;
+
+    if (text.includes('://')) {
+      try {
+        const url = new URL(text);
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        if (pathParts.includes('scan')) {
+          qrCode = pathParts[pathParts.length - 1];
+        } else {
+          qrCode = text;
+        }
+      } catch (error) {
+        qrCode = text;
+      }
+    } else if (text.includes('/scan/')) {
+      qrCode = text.split('/scan/').pop().split('?')[0];
+    }
+
+    status.textContent = 'تم مسح الكود بنجاح';
+    setTimeout(() => {
+      window.location.href = '/scan/' + encodeURIComponent(qrCode);
+    }, 800);
+  }
+
   Html5Qrcode.getCameras().then(devices => {
     if (devices && devices.length) {
       const cameraId = devices[0].id;
@@ -28,21 +54,18 @@
         cameraId,
         { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
-          status.textContent = 'تم مسح الكود بنجاح';
-          setTimeout(() => {
-            window.location.href = '/scan/' + encodeURIComponent(decodedText);
-          }, 800);
+          redirectFromQr(decodedText);
         },
         (errorMessage) => {
-          // ignored, scanner keeps running
+          // ignored; scanner keeps running
         }
-      ).catch(err => {
+      ).catch(() => {
         status.textContent = 'تعذر فتح الكاميرا. تأكد من السماح بالوصول.';
       });
     } else {
       status.textContent = 'لا توجد كاميرا متاحة في هذا الجهاز.';
     }
-  }).catch(err => {
+  }).catch(() => {
     status.textContent = 'تعذر الوصول إلى الكاميرات.';
   });
 </script>

@@ -10,6 +10,18 @@
   </div>
 </div>
 
+<div class="card shadow-sm rounded-4 mb-4">
+  <div class="card-body">
+    <form method="get" action="{{ url_for('reports') }}" class="d-flex gap-2 align-items-center flex-wrap">
+      <input type="text" name="q" value="{{ search_term or '' }}" class="form-control" placeholder="ابحث باسم الطالب أو رقم الطالب أو المستوى" style="max-width: 420px;">
+      <button type="submit" class="btn btn-primary">بحث</button>
+      {% if search_term %}
+      <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary">مسح</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
 <div class="card shadow-sm rounded-4">
   <div class="card-body">
     <div class="table-responsive">

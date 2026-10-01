@@ -10,6 +10,7 @@ from flask import Flask, flash, redirect, render_template, request, send_file, s
 from openpyxl import Workbook
 from werkzeug.utils import secure_filename
 
+
 # Workaround: ReportLab on some Python/OpenSSL builds calls md5(..., usedforsecurity=False)
 # which isn't supported by older OpenSSL bindings. Patch hashlib.md5 and any
 # openssl_md5 entry to ignore that kwarg before importing reportlab so
@@ -41,6 +42,18 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+try:
+    import reportlab.pdfdoc as _pdfdoc
+    def _safe_md5(*args, **kwargs):
+        kwargs.pop('usedforsecurity', None)
+        return hashlib.md5(*args, **kwargs)
+    _pdfdoc.md5 = _safe_md5
+    if hasattr(_pdfdoc, 'openssl_md5'):
+        _pdfdoc.openssl_md5 = _safe_md5
+except Exception:
+    pass
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'database.db')
@@ -167,10 +180,9 @@ def save_upload(file, folder):
     file.save(file_path)
     return unique_name
 
-def generate_qr_image(student_id, qr_code):
-  # استخدام نطاق موقعك الفعلي على Render مباشرة لحل مشكلة البروكسي
-  base_url = 'https://projectran.onrender.com'
-  data_to_encode = f'{base_url}/scan/{qr_code}'
+def generate_qr_image(student_id, qr_code, base_url=None):
+  public_base_url = base_url or os.getenv('PUBLIC_BASE_URL') or 'https://projectran.onrender.com'
+  data_to_encode = f'{public_base_url.rstrip("/")}/scan/{qr_code}'
 
   qr = qrcode.QRCode(
       version=1,
@@ -185,6 +197,19 @@ def generate_qr_image(student_id, qr_code):
   file_name = f'student_{student_id}_qr.png'
   img.save(os.path.join(QR_FOLDER, file_name))
   return file_name
+
+
+def build_student_search_filter(search_term):
+    term = (search_term or '').strip()
+    if not term:
+        return '', [], ''
+    pattern = f'%{term}%'
+    return (
+        ' WHERE full_name LIKE ? OR student_number LIKE ? OR level LIKE ? OR department LIKE ? ',
+        [pattern, pattern, pattern, pattern],
+        term,
+    )
+
 
 @app.route('/regenerate-all-qrs')
 @login_required
@@ -214,9 +239,7 @@ def get_student_summary(student_id):
 
     return student, latest_eval, damage_count['total'] if damage_count else 0
 
-
 def ensure_arabic_font():
-    """Register a TTF font that supports Arabic if available on the system."""
     if 'ArabicFont' in pdfmetrics.getRegisteredFontNames():
         return True
 
@@ -236,21 +259,22 @@ def ensure_arabic_font():
                 continue
     return False
 
-
 def shape_text_for_pdf(text):
-    """Shape Arabic text for proper display using arabic_reshaper and python-bidi when available.
-    Falls back to the original text if packages are missing.
-    """
+    """تشكيل النص العربي وعكس اتجاهه ليتم طباعته بشكل صحيح في الـ PDF"""
     if not text:
         return ''
     try:
         import arabic_reshaper
         from bidi.algorithm import get_display
-        reshaped = arabic_reshaper.reshape(text)
-        bidi_text = get_display(reshaped)
+        
+        # ربط الحروف العربية ببعضها البعض
+        reshaped_text = arabic_reshaper.reshape(str(text))
+        # ضبط اتجاه الكتابة من اليمين إلى اليسار
+        bidi_text = get_display(reshaped_text)
         return bidi_text
-    except Exception:
-        return text
+    except Exception as e:
+        print("Arabic shaping error:", e)
+        return str(text)
 
 
 @app.route('/')
@@ -320,8 +344,11 @@ def dashboard():
 @app.route('/students')
 @login_required
 def students():
+    search_term = request.args.get('q', '').strip()
     conn = get_db_connection()
-    students_list = conn.execute('SELECT * FROM students ORDER BY id DESC').fetchall()
+    where_sql, params, _ = build_student_search_filter(search_term)
+    query = 'SELECT * FROM students' + where_sql + ' ORDER BY id DESC'
+    students_list = conn.execute(query, params).fetchall()
     data = []
     for student in students_list:
         latest = conn.execute(
@@ -333,7 +360,7 @@ def students():
         student_data['latest_rating'] = latest['rating'] if latest else 'لا يوجد تقييم'
         data.append(student_data)
     conn.close()
-    return render_template('students.html', students=data)
+    return render_template('students.html', students=data, search_term=search_term)
 
 
 @app.route('/students/new', methods=['GET', 'POST'])
@@ -382,8 +409,10 @@ def new_student():
 
 
 @app.route('/student/<int:student_id>')
-@login_required
 def student_detail(student_id):
+    if 'user' not in session and request.args.get('public') != '1':
+        return redirect(url_for('login'))
+
     student, latest_eval, damage_count = get_student_summary(student_id)
     if not student:
         flash('الطالب غير موجود', 'danger')
@@ -419,6 +448,7 @@ def student_detail(student_id):
         evaluations=evaluations,
         damage_reports=damage_reports,
         damage_count=damage_count,
+        is_public_view=request.args.get('public') == '1',
     )
 
 
@@ -460,19 +490,13 @@ def delete_student(student_id):
         flash('الطالب غير موجود', 'danger')
         return redirect(url_for('students'))
 
-    # collect damage photos to remove
     damage_photos = conn.execute('SELECT damage_photo FROM damage_reports WHERE student_id = ?', (student_id,)).fetchall()
-
-    # delete related evaluations and damage reports
     conn.execute('DELETE FROM evaluations WHERE student_id = ?', (student_id,))
     conn.execute('DELETE FROM damage_reports WHERE student_id = ?', (student_id,))
-
-    # delete student record
     conn.execute('DELETE FROM students WHERE id = ?', (student_id,))
     conn.commit()
     conn.close()
 
-    # remove files: student photo (if uploaded) and QR image
     try:
         if student['photo'] and student['photo'] != 'default_student.png':
             photo_path = os.path.join(UPLOAD_FOLDER, student['photo'])
@@ -488,7 +512,6 @@ def delete_student(student_id):
     except Exception:
         pass
 
-    # remove any damage photos
     for dp in damage_photos:
         try:
             if dp and dp[0]:
@@ -525,17 +548,14 @@ def edit_student(student_id):
             conn.close()
             return render_template('edit_student.html', student=student)
 
-        # check unique student_number (allow same for this student)
         existing = conn.execute('SELECT id FROM students WHERE student_number = ? AND id != ?', (student_number, student_id)).fetchone()
         if existing:
             conn.close()
             flash('رقم الطالب مستخدم من قبل طالب آخر', 'danger')
             return render_template('edit_student.html', student=student)
 
-        # handle photo upload
         photo_name = student['photo']
         if photo and photo.filename:
-            # remove old photo if not default
             try:
                 if student['photo'] and student['photo'] != 'default_student.png':
                     old_path = os.path.join(UPLOAD_FOLDER, student['photo'])
@@ -595,161 +615,244 @@ def report_damage(student_id):
 @app.route('/reports')
 @login_required
 def reports():
+    search_term = request.args.get('q', '').strip()
     conn = get_db_connection()
-    rows = conn.execute(
-        '''
+    where_sql, params, _ = build_student_search_filter(search_term)
+    query = '''
         SELECT s.id, s.full_name, s.level, s.department,
                (SELECT score FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS score,
                (SELECT rating FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS rating,
                (SELECT COUNT(*) FROM damage_reports WHERE student_id = s.id) AS damage_count
         FROM students s
+    ''' + where_sql + '''
         ORDER BY COALESCE((SELECT score FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1), 0) DESC
-        '''
-    ).fetchall()
+    '''
+    rows = conn.execute(query, params).fetchall()
     conn.close()
-    return render_template('reports.html', rows=rows)
+    return render_template('reports.html', rows=rows, search_term=search_term)
 
 
-
-# احذفي @login_required من فوق هذه الدالة لكي يتمكن الهاتف من قراءة الرابط
+@app.route('/scan', methods=['GET'])
 @app.route('/scan/<qr_code>')
-def scan_qr(qr_code):
-  conn = get_db_connection()
-  student = conn.execute(
-      'SELECT * FROM students WHERE qr_code = ?', (qr_code,)
-  ).fetchone()
-  conn.close()
-  if student:
-    return redirect(url_for('student_detail', student_id=student['id']))
-  flash('رمز QR غير موجود', 'danger')
-  return redirect(url_for('dashboard'))
+def scan_qr(qr_code=None):
+    raw_code = qr_code or request.args.get('code', '').strip()
+    if not raw_code:
+        flash('رمز QR غير موجود', 'danger')
+        return redirect(url_for('dashboard'))
 
-@app.route('/qr-print')
-@login_required
-def qr_print_page():
-    level = request.args.get('level', '').strip()
+    raw_code = str(raw_code).strip().strip('\"\'')
+
+    try:
+        from urllib.parse import parse_qs, urlparse
+
+        if '://' in raw_code:
+            parsed = urlparse(raw_code)
+            path_parts = [segment for segment in parsed.path.split('/') if segment]
+
+            if 'scan' in path_parts:
+                raw_code = path_parts[-1]
+            elif 'student' in path_parts and len(path_parts) >= 2:
+                student_id = path_parts[path_parts.index('student') + 1]
+                if student_id.isdigit():
+                    student = get_db_connection().execute(
+                        'SELECT * FROM students WHERE id = ?', (int(student_id),)
+                    ).fetchone()
+                    if student:
+                        return redirect(url_for('student_detail', student_id=student['id'], public='1'))
+                    raw_code = student_id
+            elif parsed.query:
+                params = parse_qs(parsed.query)
+                if 'code' in params and params['code']:
+                    raw_code = params['code'][0]
+        elif '/scan/' in raw_code:
+            raw_code = raw_code.rstrip('/').split('/scan/')[-1]
+        elif '/student/' in raw_code:
+            suffix = raw_code.rstrip('/').split('/student/')[-1]
+            if suffix.isdigit():
+                student = get_db_connection().execute(
+                    'SELECT * FROM students WHERE id = ?', (int(suffix),)
+                ).fetchone()
+                if student:
+                    return redirect(url_for('student_detail', student_id=student['id'], public='1'))
+    except Exception:
+        pass
+
+    raw_code = raw_code.strip()
     conn = get_db_connection()
-    if level:
-        students_list = conn.execute('SELECT * FROM students WHERE level = ? ORDER BY id DESC', (level,)).fetchall()
-    else:
-        students_list = conn.execute('SELECT * FROM students ORDER BY id DESC').fetchall()
+    student = conn.execute(
+        'SELECT * FROM students WHERE qr_code = ?', (raw_code,)
+    ).fetchone()
     conn.close()
-    return render_template('qr_print.html', students=students_list, selected_level=level)
+    if student:
+        return redirect(url_for('student_detail', student_id=student['id'], public='1'))
+
+    flash('رمز QR غير موجود', 'danger')
+    return redirect(url_for('dashboard'))
 
 
-@app.route('/export/excel')
+@app.route('/scanner')
 @login_required
-def export_excel():
-    conn = get_db_connection()
-    students_list = conn.execute('SELECT * FROM students ORDER BY id DESC').fetchall()
-    conn.close()
-
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = 'Students Reports'
-    sheet.append(['اسم الطالب', 'رقم الطالب', 'المستوى', 'القسم', 'الهاتف', 'تاريخ الإضافة'])
-
-    for student in students_list:
-        sheet.append([
-            student['full_name'],
-            student['student_number'],
-            student['level'],
-            student['department'],
-            student['phone'],
-            student['created_at'],
-        ])
-
-    file_path = os.path.join(BASE_DIR, 'students_report.xlsx')
-    workbook.save(file_path)
-    return send_file(file_path, as_attachment=True, download_name='students_report.xlsx')
+def scanner():
+    return render_template('scanner.html')
 
 
 @app.route('/export/pdf')
 @login_required
 def export_pdf():
+    search_term = request.args.get('q', '').strip()
     conn = get_db_connection()
-    rows = conn.execute(
-        '''
+    where_sql, params, _ = build_student_search_filter(search_term)
+    query = '''
         SELECT s.full_name, s.level, s.department,
                (SELECT score FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS score,
-               (SELECT rating FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS rating
+               (SELECT rating FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS rating,
+               (SELECT COUNT(*) FROM damage_reports WHERE student_id = s.id) AS damage_count
         FROM students s
-        ORDER BY s.id DESC
-        '''
-    ).fetchall()
+    ''' + where_sql + ' ORDER BY s.id DESC'
+    rows = conn.execute(query, params).fetchall()
     conn.close()
 
-    # ensure we have an Arabic-capable font registered if possible
     have_font = ensure_arabic_font()
-    pdf_path = os.path.join(BASE_DIR, 'students_report.pdf')
-    c = canvas.Canvas(pdf_path, pagesize=A4)
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 40
-    c.setTitle('Students Report')
+    left_margin = 30
+    top_margin = height - 50
+    table_left = 30
+    table_top = top_margin - 20
+    col_widths = [170, 70, 110, 70, 70, 70]
+    row_height = 22
     title = shape_text_for_pdf('تقرير الطلاب')
     if have_font:
         c.setFont('ArabicFont', 18)
         c.setFillColor(colors.HexColor('#4B0F1A'))
-        # right-align Arabic title
-        c.drawRightString(width - 40, y, title)
+        c.drawRightString(width - 35, top_margin, title)
     else:
         c.setFont('Helvetica-Bold', 18)
         c.setFillColor(colors.HexColor('#4B0F1A'))
-        c.drawString(40, y, title)
-    y -= 30
+        c.drawString(40, top_margin, title)
 
-    header_labels = ['اسم الطالب', 'المستوى', 'القسم', 'التقييم', 'النقاط']
-    if have_font:
-        c.setFont('ArabicFont', 11)
-    else:
-        c.setFont('Helvetica', 11)
+    headers = ['اسم الطالب', 'المستوى', 'القسم', 'التقييم', 'النقاط', 'الحوادث']
+    x = table_left
+    y = table_top
+    c.setFillColor(colors.HexColor('#EAEAEA'))
+    c.rect(table_left, y - row_height, sum(col_widths), row_height, fill=1, stroke=1)
     c.setFillColor(colors.black)
-    # header columns (use right-aligned for Arabic-capable font)
     if have_font:
-        c.drawRightString(150, y, shape_text_for_pdf(header_labels[0]))
-        c.drawRightString(240, y, shape_text_for_pdf(header_labels[1]))
-        c.drawRightString(340, y, shape_text_for_pdf(header_labels[2]))
-        c.drawRightString(440, y, shape_text_for_pdf(header_labels[3]))
-        c.drawRightString(520, y, shape_text_for_pdf(header_labels[4]))
+        c.setFont('ArabicFont', 10)
     else:
-        c.drawString(40, y, shape_text_for_pdf(header_labels[0]))
-        c.drawString(170, y, shape_text_for_pdf(header_labels[1]))
-        c.drawString(260, y, shape_text_for_pdf(header_labels[2]))
-        c.drawString(350, y, shape_text_for_pdf(header_labels[3]))
-        c.drawString(470, y, shape_text_for_pdf(header_labels[4]))
-    y -= 20
+        c.setFont('Helvetica-Bold', 10)
 
+    for index, header in enumerate(headers):
+        cell_x = x + sum(col_widths[:index])
+        value = shape_text_for_pdf(header)
+        c.drawRightString(cell_x + col_widths[index] - 8, y - 15, value)
+
+    c.setFillColor(colors.black)
+    c.setStrokeColor(colors.grey)
+    y -= row_height
     for row in rows:
         if y < 60:
             c.showPage()
-            y = height - 40
-        name = shape_text_for_pdf(row['full_name'] or '')
-        dept = shape_text_for_pdf(row['department'] or '')
-        rating = shape_text_for_pdf(row['rating'] or 'لا يوجد')
+            y = height - 70
+            x = table_left
+            c.setFillColor(colors.HexColor('#EAEAEA'))
+            c.rect(table_left, y - row_height, sum(col_widths), row_height, fill=1, stroke=1)
+            c.setFillColor(colors.black)
+            if have_font:
+                c.setFont('ArabicFont', 10)
+            else:
+                c.setFont('Helvetica-Bold', 10)
+            for index, header in enumerate(headers):
+                cell_x = x + sum(col_widths[:index])
+                value = shape_text_for_pdf(header)
+                c.drawRightString(cell_x + col_widths[index] - 8, y - 15, value)
+            c.setFillColor(colors.black)
+            c.setStrokeColor(colors.grey)
+            y -= row_height
+
+        c.rect(table_left, y - row_height, sum(col_widths), row_height, fill=0, stroke=1)
+        for idx, col_width in enumerate(col_widths):
+            cell_x = table_left + sum(col_widths[:idx])
+            c.line(cell_x, y - row_height, cell_x, y)
+
+        values = [
+            row['full_name'] or '',
+            row['level'] or '',
+            row['department'] or '',
+            row['rating'] or 'لا يوجد',
+            str(row['score'] or 0),
+            str(row['damage_count'] or 0),
+        ]
         if have_font:
-            c.setFont('ArabicFont', 11)
-            # right-align Arabic columns
-            c.drawRightString(150, y, name)
-            c.drawRightString(240, y, shape_text_for_pdf(row['level'] or ''))
-            c.drawRightString(340, y, dept)
-            c.drawRightString(440, y, rating)
-            c.drawRightString(520, y, str(row['score'] or 0))
+            c.setFont('ArabicFont', 9)
         else:
-            c.drawString(40, y, name)
-            c.drawString(170, y, shape_text_for_pdf(row['level'] or ''))
-            c.drawString(260, y, dept)
-            c.drawString(350, y, rating)
-            c.drawString(470, y, str(row['score'] or 0))
-        y -= 18
+            c.setFont('Helvetica', 9)
+        for index, value in enumerate(values):
+            cell_x = table_left + sum(col_widths[:index])
+            cell_value = shape_text_for_pdf(str(value))
+            c.drawRightString(cell_x + col_widths[index] - 8, y - 15, cell_value)
+        y -= row_height
 
     c.save()
-    return send_file(pdf_path, as_attachment=True, download_name='students_report.pdf')
+    buffer.seek(0)
+    return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name='students_report.pdf')
+
+
+@app.route('/export/excel')
+@login_required
+def export_excel():
+    search_term = request.args.get('q', '').strip()
+    conn = get_db_connection()
+    where_sql, params, _ = build_student_search_filter(search_term)
+    query = '''
+        SELECT s.full_name, s.level, s.department,
+               (SELECT score FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS score,
+               (SELECT rating FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS rating,
+               (SELECT COUNT(*) FROM damage_reports WHERE student_id = s.id) AS damage_count
+        FROM students s
+    ''' + where_sql + ' ORDER BY s.id DESC'
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'تقرير الطلاب'
+
+    headers = ['اسم الطالب', 'المستوى', 'القسم', 'التقييم', 'النقاط', 'الحوادث']
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            r['full_name'] or '',
+            r['level'] or '',
+            r['department'] or '',
+            r['rating'] or 'لا يوجد',
+            r['score'] or 0,
+            r['damage_count'] or 0,
+        ])
+
+    # Adjust column widths
+    column_widths = [30, 12, 20, 12, 10, 10]
+    for i, width in enumerate(column_widths, start=1):
+        col_letter = chr(64 + i)
+        try:
+            ws.column_dimensions[col_letter].width = width
+        except Exception:
+            pass
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True,
+                     download_name='students_report.xlsx')
 
 
 @app.route('/export/qr-bundle')
 @login_required
 def export_qr_bundle():
-    # optional query parameter `level` to filter by student level
     level = request.args.get('level', '').strip()
     conn = get_db_connection()
     if level:
@@ -759,16 +862,11 @@ def export_qr_bundle():
     conn.close()
 
     have_font = ensure_arabic_font()
-
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-
-    # Leave header space for a university logo/title
     header_height = 80
     y_start = height - header_height - 20
-
-    # draw header title (logo can be added manually to static/logo.png and drawn here)
     title_text = f'قائمة رموز QR للطلاب {"- مستوى " + level if level else ""}'
     title_text_shaped = shape_text_for_pdf(title_text)
     if have_font:
@@ -778,13 +876,11 @@ def export_qr_bundle():
     c.setFillColor(colors.HexColor('#4B0F1A'))
     c.drawString(40, height - 30, title_text_shaped)
 
-    # layout grid
     left_margin = 40
     qr_size = 140
     gap_x = 30
     gap_y = 90
     per_row = 3
-
     x_positions = [left_margin + i * (qr_size + gap_x) for i in range(per_row)]
     y = y_start
     col = 0
@@ -792,7 +888,6 @@ def export_qr_bundle():
     for student in students:
         if y < 140:
             c.showPage()
-            # redraw header on new page
             if have_font:
                 c.setFont('ArabicFont', 14)
             else:
@@ -804,25 +899,21 @@ def export_qr_bundle():
         x = x_positions[col]
         qr_path = os.path.join(QR_FOLDER, f'student_{student["id"]}_qr.png')
         if not os.path.exists(qr_path):
-            generate_qr_image(student['id'], student['qr_code'])
+            generate_qr_image(student['id'], student['qr_code'], base_url=os.getenv('PUBLIC_BASE_URL'))
 
-        # draw QR and student text
         try:
             c.drawImage(qr_path, x, y - qr_size, width=qr_size, height=qr_size)
         except Exception:
             pass
 
-        # draw name below QR, shaped for Arabic if possible
         name = shape_text_for_pdf((student['full_name'] or '') if student['full_name'] is not None else '')
         if have_font:
             c.setFont('ArabicFont', 12)
-            # right-align name near the QR's right edge
             c.drawRightString(x + qr_size, y - qr_size - 16, name)
         else:
             c.setFont('Helvetica-Bold', 10)
             c.drawString(x, y - qr_size - 16, name)
 
-        # student number smaller
         if have_font:
             c.setFont('ArabicFont', 9)
             c.drawRightString(x + qr_size, y - qr_size - 30, (student['student_number'] or '') if student['student_number'] is not None else '')
@@ -839,50 +930,38 @@ def export_qr_bundle():
     buffer.seek(0)
     return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name='student_qr_bundle.pdf')
 
+
+@app.route('/qr-print')
+@login_required
+def qr_print_page():
+    level = request.args.get('level', '').strip()
+    conn = get_db_connection()
+    if level:
+        students_list = conn.execute('SELECT * FROM students WHERE level = ? ORDER BY id DESC', (level,)).fetchall()
+    else:
+        students_list = conn.execute('SELECT * FROM students ORDER BY id DESC').fetchall()
+    conn.close()
+    return render_template('qr_print.html', students=students_list, selected_level=level)
+
+
 @app.route('/student/<int:student_id>/qr.png')
 def student_qr_code_image(student_id):
-  conn = get_db_connection()
-  student = conn.execute(
-      'SELECT qr_code FROM students WHERE id = ?', (student_id,)
-  ).fetchone()
-  conn.close()
-
-  if not student or not student['qr_code']:
-    return 'Not Found', 404
-
-  # رابط مسار الاستجابة الصريح والرسمي
-  base_url = 'https://projectran.onrender.com'
-  target_url = f"{base_url}/scan/{student['qr_code']}"
-
-  qr = qrcode.QRCode(version=1, box_size=10, border=4)
-  qr.add_data(target_url)
-  qr.make(fit=True)
-  img = qr.make_image(fill_color='black', back_color='white')
-
-  img_io = BytesIO()
-  img.save(img_io, 'PNG')
-  img_io.seek(0)
-
-  return send_file(img_io, mimetype='image/png')
-
-
-def init_db():
     conn = get_db_connection()
-    # إنشاء الجداول إذا لم تكن موجودة
-    # ... (تظل باقي استعلامات CREATE TABLE كما هي لديكِ) ...
-    conn.commit()
-
-    # تحديث كل الـ QRs تلقائياً عند التشغيل
-    with app.app_context():
-        try:
-            students = conn.execute('SELECT id, qr_code FROM students').fetchall()
-            for student in students:
-                if student['qr_code']:
-                    generate_qr_image(student['id'], student['qr_code'])
-        except Exception as e:
-            print("QR Sync Error:", e)
-
+    student = conn.execute('SELECT qr_code FROM students WHERE id = ?', (student_id,)).fetchone()
     conn.close()
+    if not student or not student['qr_code']:
+        return '', 404
+
+    qr_path = os.path.join(QR_FOLDER, f'student_{student_id}_qr.png')
+    if not os.path.exists(qr_path):
+        generate_qr_image(student_id, student['qr_code'])
+
+    if not os.path.exists(qr_path):
+        return '', 404
+
+    return send_file(qr_path, mimetype='image/png')
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    init_db()
+    app.run(host='0.0.0.0', port=5000, debug=True)
