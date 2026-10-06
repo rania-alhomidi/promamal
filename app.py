@@ -398,7 +398,8 @@ def new_student():
         )
         conn.commit()
         student_id = cursor.lastrowid
-        generate_qr_image(student_id, qr_code, base_url=request.host_url)        conn.close()
+        generate_qr_image(student_id, qr_code, base_url=request.host_url)
+        conn.close()
 
         flash('تمت إضافة الطالب بنجاح', 'success')
         return redirect(url_for('student_detail', student_id=student_id))
