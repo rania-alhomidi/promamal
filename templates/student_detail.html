@@ -6,14 +6,14 @@
   <a href="{{ url_for('students') }}" class="btn btn-outline-primary">رجوع</a>
 </div>
 
-<div class="row g-4">
-  <div class="col-lg-4">
-    <div class="card shadow-sm rounded-4 h-100">
+<div class="row g-4 student-detail-layout">
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm rounded-4 h-100 student-profile-card">
       <div class="card-body text-center">
         {% set photo = '/static/uploads/' + student.photo if student.photo and student.photo != 'default_student.png'
         else '/static/default_student.png' %}
         <img src="{{ photo }}" alt="student image" class="student-large-img">
-        <h3 class="mt-3">{{ student.full_name }}</h3>
+        <h3 class="mt-3 mb-2">{{ student.full_name }}</h3>
         <p class="text-muted mb-1">رقم الطالب: {{ student.student_number }}</p>
         <p class="text-muted mb-1">المستوى: {{ student.level }}</p>
         <p class="text-muted mb-1">القسم: {{ student.department or 'غير محدد' }}</p>
@@ -21,21 +21,18 @@
 
         {% if student.qr_code %}
         <div class="qr-box">
-          <!-- الجديد -->
-          <a href="{{ url_for('student_detail', student_id=student.id, public=1) }}">
+          <a href="{{ url_for('student_detail', student_id=student.id, public=1) }}" class="qr-link">
             <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}"
               alt="QR code" class="qr-image">
-          </a> <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}"
-            alt="QR code" class="qr-image">
           </a>
-          <p class="small mt-2">{{ student.qr_code }}</p>
+          <p class="small mt-2 mb-0">{{ student.qr_code }}</p>
         </div>
         {% endif %}
       </div>
     </div>
   </div>
 
-  <div class="col-lg-8">
+  <div class="col-12 col-lg-8">
     <div class="card shadow-sm rounded-4 mb-4">
       <div class="card-body">
         <h4>التقييم الحالي</h4>
@@ -119,7 +116,7 @@
 </div>
 
 <div class="row g-4 mt-4">
-  <div class="col-lg-6">
+  <div class="col-12 col-lg-6">
     <div class="card shadow-sm rounded-4">
       <div class="card-body">
         <h4>سجل التقييمات</h4>
@@ -140,7 +137,7 @@
     </div>
   </div>
 
-  <div class="col-lg-6">
+  <div class="col-12 col-lg-6">
     <div class="card shadow-sm rounded-4">
       <div class="card-body">
         <h4>سجل الحوادث</h4>

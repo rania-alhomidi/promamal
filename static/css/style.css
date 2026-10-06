@@ -268,6 +268,54 @@ main.container {
   background: #000;
 }
 
+.student-detail-layout {
+  align-items: stretch;
+}
+
+.student-profile-card {
+  overflow: hidden;
+}
+
+.qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 12px 8px;
+  margin-top: 12px;
+  border: 1px solid #f0d7db;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fff, #fff9fa);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.qr-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-image {
+  display: block;
+  width: min(180px, 60vw);
+  height: auto;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  border: 1px solid #eee;
+}
+
+.damage-image {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
 @media (max-width: 768px) {
   .shield-shape {
     width: 280px;
@@ -278,6 +326,29 @@ main.container {
   }
   .english-title {
     font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .student-large-img {
+    width: 150px;
+    height: 150px;
+  }
+
+  .qr-image {
+    width: min(150px, 55vw);
+  }
+
+  .card-body {
+    padding: 1rem;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  .text-end {
+    text-align: center !important;
   }
 }
 small{
