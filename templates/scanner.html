@@ -119,6 +119,12 @@
   }
 
   async function startScanner() {
+    const isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (!isSecure) {
+      status.textContent = 'يجب فتح الموقع عبر HTTPS أو localhost حتى تعمل الكاميرا.';
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       status.textContent = 'المتصفح لا يدعم الكاميرا في هذا الجهاز.';
       return;
@@ -147,7 +153,10 @@
           fps: 10,
           qrbox: { width: 260, height: 260 },
           aspectRatio: 1.2,
-          disableFlip: false
+          disableFlip: false,
+          videoConstraints: {
+            facingMode: { ideal: 'environment' }
+          }
         },
         (decodedText) => redirectFromQr(decodedText),
         (errorMessage) => {
@@ -157,7 +166,7 @@
 
       status.textContent = 'وجه الكاميرا نحو رمز الطالب...';
     } catch (error) {
-      status.textContent = 'تعذر فتح الكاميرا. تأكد من إعطاء الصلاحية للمتصفح.';
+      status.textContent = 'تعذر فتح الكاميرا. تأكد من إعطاء الصلاحية للمتصفح أو استخدم متصفح يدعم الوصول إلى الكاميرا.';
       startBtn.disabled = false;
     }
   }
