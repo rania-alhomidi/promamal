@@ -67,6 +67,16 @@ app = Flask(__name__)
 app.secret_key = 'super-secret-lab-key-2026'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+def build_student_search_filter(search_term):
+    term = (search_term or '').strip()
+    if not term:
+        return '', [], ''
+    pattern = f'%{term}%'
+    return (
+        ' WHERE full_name LIKE ? OR student_number LIKE ? OR level LIKE ? OR department LIKE ? ',
+        [pattern, pattern, pattern, pattern],
+        term,
+    )
 
 @app.context_processor
 def inject_user():
@@ -181,35 +191,23 @@ def save_upload(file, folder):
     return unique_name
 
 def generate_qr_image(student_id, qr_code, base_url=None):
-  public_base_url = base_url or os.getenv('PUBLIC_BASE_URL') or 'https://projectran.onrender.com'
-  data_to_encode = f'{public_base_url.rstrip("/")}/scan/{qr_code}'
+    public_base_url = base_url or os.getenv('PUBLIC_BASE_URL') or 'https://projectran.onrender.com'
+    # توجيه الممسوح مباشرة إلى صفحة تفاصيل الطالب id
+    data_to_encode = f'{public_base_url.rstrip("/")}/student/{student_id}?public=1'
 
-  qr = qrcode.QRCode(
-      version=1,
-      error_correction=qrcode.constants.ERROR_CORRECT_L,
-      box_size=10,
-      border=4,
-  )
-  qr.add_data(data_to_encode)
-  qr.make(fit=True)
-
-  img = qr.make_image(fill_color='black', back_color='white')
-  file_name = f'student_{student_id}_qr.png'
-  img.save(os.path.join(QR_FOLDER, file_name))
-  return file_name
-
-
-def build_student_search_filter(search_term):
-    term = (search_term or '').strip()
-    if not term:
-        return '', [], ''
-    pattern = f'%{term}%'
-    return (
-        ' WHERE full_name LIKE ? OR student_number LIKE ? OR level LIKE ? OR department LIKE ? ',
-        [pattern, pattern, pattern, pattern],
-        term,
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
     )
+    qr.add_data(data_to_encode)
+    qr.make(fit=True)
 
+    img = qr.make_image(fill_color='black', back_color='white')
+    file_name = f'student_{student_id}_qr.png'
+    img.save(os.path.join(QR_FOLDER, file_name))
+    return file_name
 
 @app.route('/regenerate-all-qrs')
 @login_required
@@ -640,7 +638,7 @@ def scan_qr(qr_code=None):
         flash('رمز QR غير موجود', 'danger')
         return redirect(url_for('dashboard'))
 
-    raw_code = str(raw_code).strip().strip('\"\'')
+    raw_code = str(raw_code).strip().strip('\"\'' )
 
     try:
         from urllib.parse import parse_qs, urlparse
@@ -678,6 +676,13 @@ def scan_qr(qr_code=None):
         pass
 
     raw_code = raw_code.strip()
+    if raw_code.isdigit():
+        student = get_db_connection().execute(
+            'SELECT * FROM students WHERE id = ?', (int(raw_code),)
+        ).fetchone()
+        if student:
+            return redirect(url_for('student_detail', student_id=student['id'], public='1'))
+
     conn = get_db_connection()
     student = conn.execute(
         'SELECT * FROM students WHERE qr_code = ?', (raw_code,)

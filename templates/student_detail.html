@@ -10,7 +10,8 @@
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
       <div class="card-body text-center">
-        {% set photo = '/static/uploads/' + student.photo if student.photo and student.photo != 'default_student.png' else '/static/default_student.png' %}
+        {% set photo = '/static/uploads/' + student.photo if student.photo and student.photo != 'default_student.png'
+        else '/static/default_student.png' %}
         <img src="{{ photo }}" alt="student image" class="student-large-img">
         <h3 class="mt-3">{{ student.full_name }}</h3>
         <p class="text-muted mb-1">رقم الطالب: {{ student.student_number }}</p>
@@ -20,8 +21,12 @@
 
         {% if student.qr_code %}
         <div class="qr-box">
-          <a href="{{ url_for('scan_qr', qr_code=student.qr_code) }}">
-            <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" alt="QR code" class="qr-image">
+          <!-- الجديد -->
+          <a href="{{ url_for('student_detail', student_id=student.id, public=1) }}">
+            <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}"
+              alt="QR code" class="qr-image">
+          </a> <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}"
+            alt="QR code" class="qr-image">
           </a>
           <p class="small mt-2">{{ student.qr_code }}</p>
         </div>
@@ -80,7 +85,8 @@
     <div class="card shadow-sm rounded-4">
       <div class="card-body">
         <h4>إضافة ضرر / حادث</h4>
-        <form method="POST" action="{{ url_for('report_damage', student_id=student.id) }}" enctype="multipart/form-data">
+        <form method="POST" action="{{ url_for('report_damage', student_id=student.id) }}"
+          enctype="multipart/form-data">
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label">نوع الضرر</label>
@@ -94,7 +100,7 @@
             </div>
             <div class="col-md-6">
               <label class="form-label">صورة الضرر</label>
-              <input type="file" name="damage_photo" class="form-control" accept="image/*">
+              <input type="file" name="damage_photo" class="form-control" accept="image/*" capture="environment">
             </div>
           </div>
 
