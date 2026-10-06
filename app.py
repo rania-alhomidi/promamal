@@ -191,8 +191,9 @@ def save_upload(file, folder):
     return unique_name
 
 def generate_qr_image(student_id, qr_code, base_url=None):
-    public_base_url = base_url or os.getenv('PUBLIC_BASE_URL') or 'https://projectran.onrender.com'
-    # توجيه الممسوح مباشرة إلى صفحة تفاصيل الطالب id
+    # إذا لم يتم تمرير base_url يتم التوجيه بناءً على المتغير أو الافتراضي
+    public_base_url = base_url or os.getenv('PUBLIC_BASE_URL') or request.host_url.rstrip('/') if request else 'https://projectran.onrender.com'
+    
     data_to_encode = f'{public_base_url.rstrip("/")}/student/{student_id}?public=1'
 
     qr = qrcode.QRCode(
@@ -397,8 +398,7 @@ def new_student():
         )
         conn.commit()
         student_id = cursor.lastrowid
-        generate_qr_image(student_id, qr_code)
-        conn.close()
+        generate_qr_image(student_id, qr_code, base_url=request.host_url)        conn.close()
 
         flash('تمت إضافة الطالب بنجاح', 'success')
         return redirect(url_for('student_detail', student_id=student_id))
