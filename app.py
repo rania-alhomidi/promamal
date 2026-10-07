@@ -2,58 +2,29 @@ import hashlib
 import os
 import sqlite3
 import uuid
-from datetime import datetime
 from io import BytesIO
 
 import qrcode
 from flask import Flask, flash, redirect, render_template, request, send_file, session, url_for
 from openpyxl import Workbook
-from werkzeug.utils import secure_filename
-
-
-# Workaround: ReportLab on some Python/OpenSSL builds calls md5(..., usedforsecurity=False)
-# which isn't supported by older OpenSSL bindings. Patch hashlib.md5 and any
-# openssl_md5 entry to ignore that kwarg before importing reportlab so
-# ReportLab picks up a compatible function.
-_original_md5 = hashlib.md5
-try:
-    import _hashlib as _lib_hash
-except Exception:
-    _lib_hash = None
-
-def _compat_md5(*args, **kwargs):
-    kwargs.pop('usedforsecurity', None)
-    return _original_md5(*args, **kwargs)
-
-def _compat_openssl_md5(*args, **kwargs):
-    kwargs.pop('usedforsecurity', None)
-    return _original_md5(*args, **kwargs)
-
-hashlib.md5 = _compat_md5
-# ensure attribute exists for modules that call openssl_md5 directly
-setattr(hashlib, 'openssl_md5', _compat_openssl_md5)
-if _lib_hash and hasattr(_lib_hash, 'openssl_md5'):
-    try:
-        _lib_hash.openssl_md5 = _compat_openssl_md5
-    except Exception:
-        pass
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from werkzeug.utils import secure_filename
+
 try:
-    import reportlab.pdfdoc as _pdfdoc
-    def _safe_md5(*args, **kwargs):
-        kwargs.pop('usedforsecurity', None)
-        return hashlib.md5(*args, **kwargs)
-    _pdfdoc.md5 = _safe_md5
-    if hasattr(_pdfdoc, 'openssl_md5'):
-        _pdfdoc.openssl_md5 = _safe_md5
+    import arabic_reshaper
 except Exception:
-    pass
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    arabic_reshaper = None
+
+try:
+    from bidi.algorithm import get_display
+except Exception:
+    get_display = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'database.db')
@@ -67,6 +38,8 @@ app = Flask(__name__)
 app.secret_key = 'super-secret-lab-key-2026'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:promamal121@db.itippdkmyrrmvqaooneo.supabase.co:5432/postgres')
+
 def build_student_search_filter(search_term):
     term = (search_term or '').strip()
     if not term:
@@ -77,6 +50,7 @@ def build_student_search_filter(search_term):
         [pattern, pattern, pattern, pattern],
         term,
     )
+
 
 @app.context_processor
 def inject_user():
@@ -151,8 +125,8 @@ def init_db():
     )
     conn.commit()
 
-    admin = conn.execute('SELECT id FROM users WHERE username = ?', ('admin',)).fetchone()
-    if admin is None:
+    created = conn.execute('SELECT id FROM users WHERE username = ?', ('asma',)).fetchone()
+    if created is None:
         conn.execute(
             'INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
             ('asma', 'asma9090', 'Supervisor', 'supervisor')
@@ -190,12 +164,10 @@ def save_upload(file, folder):
     file.save(file_path)
     return unique_name
 
-def generate_qr_image(student_id, qr_code, base_url=None):
-    # إذا لم يتم تمرير base_url يتم التوجيه بناءً على المتغير أو الافتراضي
-    public_base_url = base_url or os.getenv('PUBLIC_BASE_URL') or request.host_url.rstrip('/') if request else 'https://projectran.onrender.com'
-    
-    data_to_encode = f'{public_base_url.rstrip("/")}/student/{student_id}?public=1'
 
+def generate_qr_image(student_id, qr_code, base_url=None):
+    base = base_url or os.getenv('PUBLIC_BASE_URL') or (request.host_url.rstrip('/') if request else 'https://projectran.onrender.com')
+    data_to_encode = f'{base.rstrip("/")}/student/{student_id}?public=1'
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -204,11 +176,11 @@ def generate_qr_image(student_id, qr_code, base_url=None):
     )
     qr.add_data(data_to_encode)
     qr.make(fit=True)
-
     img = qr.make_image(fill_color='black', back_color='white')
     file_name = f'student_{student_id}_qr.png'
     img.save(os.path.join(QR_FOLDER, file_name))
     return file_name
+
 
 @app.route('/regenerate-all-qrs')
 @login_required
@@ -216,15 +188,14 @@ def regenerate_all_qrs():
     conn = get_db_connection()
     students = conn.execute('SELECT id, qr_code FROM students').fetchall()
     conn.close()
-
     count = 0
     for student in students:
         if student['qr_code']:
             generate_qr_image(student['id'], student['qr_code'])
             count += 1
-
     flash(f'تمت إعادة توليد رموز QR لـ {count} طالب بنجاح!', 'success')
     return redirect(url_for('dashboard'))
+
 
 def get_student_summary(student_id):
     conn = get_db_connection()
@@ -235,45 +206,41 @@ def get_student_summary(student_id):
     ).fetchone()
     damage_count = conn.execute('SELECT COUNT(*) as total FROM damage_reports WHERE student_id = ?', (student_id,)).fetchone()
     conn.close()
-
     return student, latest_eval, damage_count['total'] if damage_count else 0
+
 
 def ensure_arabic_font():
     if 'ArabicFont' in pdfmetrics.getRegisteredFontNames():
         return True
-
     candidates = [
         r'C:\Windows\Fonts\arial.ttf',
         r'C:\Windows\Fonts\tahoma.ttf',
         r'C:\Windows\Fonts\times.ttf',
         r'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
     ]
-
-    for p in candidates:
-        if os.path.exists(p):
+    for path in candidates:
+        if os.path.exists(path):
             try:
-                pdfmetrics.registerFont(TTFont('ArabicFont', p))
+                pdfmetrics.registerFont(TTFont('ArabicFont', path))
                 return True
             except Exception:
                 continue
     return False
 
+
 def shape_text_for_pdf(text):
-    """تشكيل النص العربي وعكس اتجاهه ليتم طباعته بشكل صحيح في الـ PDF"""
     if not text:
         return ''
-    try:
-        import arabic_reshaper
-        from bidi.algorithm import get_display
-        
-        # ربط الحروف العربية ببعضها البعض
-        reshaped_text = arabic_reshaper.reshape(str(text))
-        # ضبط اتجاه الكتابة من اليمين إلى اليسار
-        bidi_text = get_display(reshaped_text)
-        return bidi_text
-    except Exception as e:
-        print("Arabic shaping error:", e)
-        return str(text)
+    text = str(text)
+    if arabic_reshaper is not None:
+        try:
+            reshaped = arabic_reshaper.reshape(text)
+            if get_display is not None:
+                return get_display(reshaped)
+            return reshaped
+        except Exception:
+            return text
+    return text
 
 
 @app.route('/')
@@ -288,27 +255,23 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
-
         conn = get_db_connection()
         user = conn.execute(
             'SELECT * FROM users WHERE username = ? AND password = ?',
             (username, password)
         ).fetchone()
         conn.close()
-
         if user:
             session['user'] = {
                 'id': user['id'],
                 'username': user['username'],
                 'full_name': user['full_name'],
-                'role': user['role']
+                'role': user['role'],
             }
             flash('تم تسجيل الدخول بنجاح', 'success')
             return redirect(url_for('dashboard'))
-
         flash('اسم المستخدم أو كلمة المرور غير صحيحة', 'danger')
         return render_template('login.html')
-
     return render_template('login.html')
 
 
@@ -325,17 +288,23 @@ def dashboard():
     students_count = conn.execute('SELECT COUNT(*) AS total FROM students').fetchone()['total']
     evaluations_count = conn.execute('SELECT COUNT(*) AS total FROM evaluations').fetchone()['total']
     damage_count = conn.execute('SELECT COUNT(*) AS total FROM damage_reports').fetchone()['total']
+    avg_score = conn.execute('SELECT AVG(score) AS avg_score FROM evaluations').fetchone()['avg_score']
+    students_with_damage = conn.execute('SELECT COUNT(DISTINCT student_id) AS total FROM damage_reports').fetchone()['total']
+    level_stats = conn.execute('SELECT level, COUNT(*) AS total FROM students GROUP BY level ORDER BY total DESC, level ASC').fetchall()
+    damage_type_stats = conn.execute('SELECT damage_type, COUNT(*) AS total FROM damage_reports GROUP BY damage_type ORDER BY total DESC LIMIT 5').fetchall()
     recent_students = conn.execute(
-        'SELECT s.*, (SELECT score FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS score '
-        'FROM students s ORDER BY s.id DESC LIMIT 5'
+        'SELECT s.*, (SELECT score FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1) AS score, (SELECT AVG(score) FROM evaluations WHERE student_id = s.id) AS avg_score FROM students s ORDER BY s.id DESC LIMIT 5'
     ).fetchall()
     conn.close()
-
     return render_template(
         'dashboard.html',
         students_count=students_count,
         evaluations_count=evaluations_count,
         damage_count=damage_count,
+        avg_score=avg_score or 0,
+        students_with_damage=students_with_damage or 0,
+        level_stats=level_stats,
+        damage_type_stats=damage_type_stats,
         recent_students=recent_students,
     )
 
@@ -400,7 +369,6 @@ def new_student():
         student_id = cursor.lastrowid
         generate_qr_image(student_id, qr_code, base_url=request.host_url)
         conn.close()
-
         flash('تمت إضافة الطالب بنجاح', 'success')
         return redirect(url_for('student_detail', student_id=student_id))
 
@@ -474,7 +442,6 @@ def evaluate_student(student_id):
     )
     conn.commit()
     conn.close()
-
     flash('تم حفظ تقييم الطالب بنجاح', 'success')
     return redirect(url_for('student_detail', student_id=student_id))
 
@@ -513,8 +480,13 @@ def delete_student(student_id):
 
     for dp in damage_photos:
         try:
-            if dp and dp[0]:
-                dp_path = os.path.join(UPLOAD_FOLDER, dp[0])
+            if not dp or not dp[0]:
+                continue
+            for photo_name in str(dp[0]).split(','):
+                image_name = photo_name.strip()
+                if not image_name:
+                    continue
+                dp_path = os.path.join(UPLOAD_FOLDER, image_name)
                 if os.path.exists(dp_path):
                     os.remove(dp_path)
         except Exception:
@@ -572,7 +544,6 @@ def edit_student(student_id):
         )
         conn.commit()
         conn.close()
-
         flash('تم تحديث بيانات الطالب بنجاح', 'success')
         return redirect(url_for('student_detail', student_id=student_id))
 
@@ -583,31 +554,54 @@ def edit_student(student_id):
 @app.route('/student/<int:student_id>/damage', methods=['POST'])
 @login_required
 def report_damage(student_id):
-    damage_type = request.form.get('damage_type', '').strip()
-    description = request.form.get('description', '').strip()
-    photo = request.files.get('damage_photo')
+    damage_types = request.form.getlist('damage_type[]') or request.form.getlist('damage_type')
+    if not damage_types:
+        damage_types = [request.form.get('damage_type', '').strip()]
+    descriptions = request.form.getlist('description[]') or request.form.getlist('description')
+    files = request.files.getlist('damage_photo[]') or request.files.getlist('damage_photo')
 
-    if not damage_type:
-        flash('يرجى تحديد نوع الضرر', 'danger')
+    valid_entries = []
+    if len(damage_types) == 1 and len(files) > 1:
+        valid_entries.append((damage_types[0].strip(), (descriptions[0] if descriptions else '').strip(), files))
+    else:
+        for index, damage_type in enumerate(damage_types):
+            damage_type = (damage_type or '').strip()
+            if not damage_type:
+                continue
+            description = (descriptions[index] if index < len(descriptions) else '').strip()
+            photo_list = files[index] if index < len(files) else []
+            if isinstance(photo_list, tuple):
+                photo_list = list(photo_list)
+            if not isinstance(photo_list, list):
+                photo_list = [photo_list] if photo_list else []
+            valid_entries.append((damage_type, description, photo_list))
+
+    if not valid_entries or (len(valid_entries) == 1 and not valid_entries[0][0]):
+        flash('يرجى تحديد نوع الضرر على الأقل', 'danger')
         return redirect(url_for('student_detail', student_id=student_id))
-
-    damage_photo_name = ''
-    if photo and photo.filename:
-        damage_photo_name = save_upload(photo, UPLOAD_FOLDER)
 
     conn = get_db_connection()
     user = session['user']
-    conn.execute(
-        '''
-        INSERT INTO damage_reports (student_id, supervisor_id, damage_type, description, damage_photo)
-        VALUES (?, ?, ?, ?, ?)
-        ''',
-        (student_id, user['id'], damage_type, description, damage_photo_name)
-    )
+    saved_count = 0
+    for damage_type, description, photo_list in valid_entries:
+        uploaded = []
+        for file in photo_list or []:
+            if file and getattr(file, 'filename', ''):
+                saved_name = save_upload(file, UPLOAD_FOLDER)
+                if saved_name:
+                    uploaded.append(saved_name)
+        conn.execute(
+            '''
+            INSERT INTO damage_reports (student_id, supervisor_id, damage_type, description, damage_photo)
+            VALUES (?, ?, ?, ?, ?)
+            ''',
+            (student_id, user['id'], damage_type, description, ','.join(uploaded))
+        )
+        saved_count += 1
+
     conn.commit()
     conn.close()
-
-    flash('تم تسجيل الضرر بنجاح', 'success')
+    flash(f'تم حفظ {saved_count} حادث/حوادث بنجاح', 'success')
     return redirect(url_for('student_detail', student_id=student_id))
 
 
@@ -624,7 +618,7 @@ def reports():
                (SELECT COUNT(*) FROM damage_reports WHERE student_id = s.id) AS damage_count
         FROM students s
     ''' + where_sql + '''
-        ORDER BY COALESCE((SELECT score FROM evaluations WHERE student_id = s.id ORDER BY id DESC LIMIT 1), 0) DESC
+        ORDER BY s.id DESC
     '''
     rows = conn.execute(query, params).fetchall()
     conn.close()
@@ -639,15 +633,13 @@ def scan_qr(qr_code=None):
         flash('رمز QR غير موجود', 'danger')
         return redirect(url_for('dashboard'))
 
-    raw_code = str(raw_code).strip().strip('\"\'' )
+    raw_code = str(raw_code).strip().strip('"\'' )
 
     try:
         from urllib.parse import parse_qs, urlparse
-
         if '://' in raw_code:
             parsed = urlparse(raw_code)
             path_parts = [segment for segment in parsed.path.split('/') if segment]
-
             if 'scan' in path_parts:
                 raw_code = path_parts[-1]
             elif 'student' in path_parts and len(path_parts) >= 2:
@@ -718,89 +710,43 @@ def export_pdf():
     rows = conn.execute(query, params).fetchall()
     conn.close()
 
-    have_font = ensure_arabic_font()
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-    left_margin = 30
-    top_margin = height - 50
-    table_left = 30
-    table_top = top_margin - 20
-    col_widths = [170, 70, 110, 70, 70, 70]
-    row_height = 22
-    title = shape_text_for_pdf('تقرير الطلاب')
-    if have_font:
-        c.setFont('ArabicFont', 18)
-        c.setFillColor(colors.HexColor('#4B0F1A'))
-        c.drawRightString(width - 35, top_margin, title)
-    else:
-        c.setFont('Helvetica-Bold', 18)
-        c.setFillColor(colors.HexColor('#4B0F1A'))
-        c.drawString(40, top_margin, title)
-
-    headers = ['اسم الطالب', 'المستوى', 'القسم', 'التقييم', 'النقاط', 'الحوادث']
-    x = table_left
-    y = table_top
-    c.setFillColor(colors.HexColor('#EAEAEA'))
-    c.rect(table_left, y - row_height, sum(col_widths), row_height, fill=1, stroke=1)
-    c.setFillColor(colors.black)
-    if have_font:
-        c.setFont('ArabicFont', 10)
-    else:
-        c.setFont('Helvetica-Bold', 10)
-
-    for index, header in enumerate(headers):
-        cell_x = x + sum(col_widths[:index])
-        value = shape_text_for_pdf(header)
-        c.drawRightString(cell_x + col_widths[index] - 8, y - 15, value)
-
-    c.setFillColor(colors.black)
-    c.setStrokeColor(colors.grey)
-    y -= row_height
+    data = [['اسم الطالب', 'المستوى', 'القسم', 'التقييم', 'النقاط', 'الحوادث']]
     for row in rows:
-        if y < 60:
-            c.showPage()
-            y = height - 70
-            x = table_left
-            c.setFillColor(colors.HexColor('#EAEAEA'))
-            c.rect(table_left, y - row_height, sum(col_widths), row_height, fill=1, stroke=1)
-            c.setFillColor(colors.black)
-            if have_font:
-                c.setFont('ArabicFont', 10)
-            else:
-                c.setFont('Helvetica-Bold', 10)
-            for index, header in enumerate(headers):
-                cell_x = x + sum(col_widths[:index])
-                value = shape_text_for_pdf(header)
-                c.drawRightString(cell_x + col_widths[index] - 8, y - 15, value)
-            c.setFillColor(colors.black)
-            c.setStrokeColor(colors.grey)
-            y -= row_height
-
-        c.rect(table_left, y - row_height, sum(col_widths), row_height, fill=0, stroke=1)
-        for idx, col_width in enumerate(col_widths):
-            cell_x = table_left + sum(col_widths[:idx])
-            c.line(cell_x, y - row_height, cell_x, y)
-
-        values = [
-            row['full_name'] or '',
-            row['level'] or '',
-            row['department'] or '',
-            row['rating'] or 'لا يوجد',
+        data.append([
+            shape_text_for_pdf(row['full_name'] or ''),
+            shape_text_for_pdf(row['level'] or ''),
+            shape_text_for_pdf(row['department'] or ''),
+            shape_text_for_pdf(row['rating'] or 'لا يوجد'),
             str(row['score'] or 0),
             str(row['damage_count'] or 0),
-        ]
-        if have_font:
-            c.setFont('ArabicFont', 9)
-        else:
-            c.setFont('Helvetica', 9)
-        for index, value in enumerate(values):
-            cell_x = table_left + sum(col_widths[:index])
-            cell_value = shape_text_for_pdf(str(value))
-            c.drawRightString(cell_x + col_widths[index] - 8, y - 15, cell_value)
-        y -= row_height
+        ])
 
-    c.save()
+    buffer = BytesIO()
+    table = Table(data, colWidths=[150, 60, 100, 70, 60, 60])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#6A111F')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.7, colors.grey),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9F2F3')]),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(shape_text_for_pdf('تقرير الطلاب'), ParagraphStyle('Title', parent=styles['Title'], fontName='Helvetica-Bold', fontSize=16, alignment=1, textColor=colors.HexColor('#4B0F1A'))),
+        Spacer(1, 15),
+        table,
+    ]
+    doc = SimpleDocTemplate(buffer, pagesize=A4, title='تقرير الطلاب', rightMargin=25, leftMargin=25, topMargin=30, bottomMargin=30)
+    doc.build(story)
     buffer.seek(0)
     return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name='students_report.pdf')
 
@@ -824,23 +770,19 @@ def export_excel():
     wb = Workbook()
     ws = wb.active
     ws.title = 'تقرير الطلاب'
-
     headers = ['اسم الطالب', 'المستوى', 'القسم', 'التقييم', 'النقاط', 'الحوادث']
     ws.append(headers)
-
-    for r in rows:
+    for row in rows:
         ws.append([
-            r['full_name'] or '',
-            r['level'] or '',
-            r['department'] or '',
-            r['rating'] or 'لا يوجد',
-            r['score'] or 0,
-            r['damage_count'] or 0,
+            row['full_name'] or '',
+            row['level'] or '',
+            row['department'] or '',
+            row['rating'] or 'لا يوجد',
+            row['score'] or 0,
+            row['damage_count'] or 0,
         ])
 
-    # Adjust column widths
-    column_widths = [30, 12, 20, 12, 10, 10]
-    for i, width in enumerate(column_widths, start=1):
+    for i, width in enumerate([30, 12, 20, 12, 10, 10], start=1):
         col_letter = chr(64 + i)
         try:
             ws.column_dimensions[col_letter].width = width
@@ -850,10 +792,7 @@ def export_excel():
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    return send_file(output,
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     as_attachment=True,
-                     download_name='students_report.xlsx')
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='students_report.xlsx')
 
 
 @app.route('/export/qr-bundle')
@@ -871,8 +810,6 @@ def export_qr_bundle():
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    header_height = 80
-    y_start = height - header_height - 20
     title_text = f'قائمة رموز QR للطلاب {"- مستوى " + level if level else ""}'
     title_text_shaped = shape_text_for_pdf(title_text)
     if have_font:
@@ -888,7 +825,7 @@ def export_qr_bundle():
     gap_y = 90
     per_row = 3
     x_positions = [left_margin + i * (qr_size + gap_x) for i in range(per_row)]
-    y = y_start
+    y = height - 120
     col = 0
 
     for student in students:
@@ -900,7 +837,7 @@ def export_qr_bundle():
                 c.setFont('Helvetica-Bold', 12)
             c.setFillColor(colors.HexColor('#4B0F1A'))
             c.drawString(40, height - 30, title_text_shaped)
-            y = y_start
+            y = height - 120
 
         x = x_positions[col]
         qr_path = os.path.join(QR_FOLDER, f'student_{student["id"]}_qr.png')
@@ -961,10 +898,8 @@ def student_qr_code_image(student_id):
     qr_path = os.path.join(QR_FOLDER, f'student_{student_id}_qr.png')
     if not os.path.exists(qr_path):
         generate_qr_image(student_id, student['qr_code'])
-
     if not os.path.exists(qr_path):
         return '', 404
-
     return send_file(qr_path, mimetype='image/png')
 
 

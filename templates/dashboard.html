@@ -2,28 +2,76 @@
 {% block title %}لوحة التحكم{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="">لوحة التحكم</h2>
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+  <h2 class="mb-0">لوحة التحكم</h2>
   <a href="{{ url_for('new_student') }}" class="btn btn-primary">إضافة طالب جديد</a>
 </div>
 
 <div class="row g-4 mb-4">
-  <div class="col-md-4">
+  <div class="col-md-3">
     <div class="stat-card">
       <div class="stat-title">عدد الطلاب</div>
       <div class="stat-value">{{ students_count }}</div>
     </div>
   </div>
-  <div class="col-md-4">
+  <div class="col-md-3">
     <div class="stat-card warning">
       <div class="stat-title">عدد التقييمات</div>
       <div class="stat-value">{{ evaluations_count }}</div>
     </div>
   </div>
-  <div class="col-md-4">
+  <div class="col-md-3">
     <div class="stat-card danger">
       <div class="stat-title">عدد الحوادث</div>
       <div class="stat-value">{{ damage_count }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card success">
+      <div class="stat-title">متوسط الدرجات</div>
+      <div class="stat-value">{{ '%.1f'|format(avg_score|float) }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-lg-6">
+    <div class="card shadow-sm rounded-4 h-100">
+      <div class="card-body">
+        <h4 class="mb-3">توزيع المستويات</h4>
+        {% if level_stats %}
+        <div class="list-group list-group-flush">
+          {% for item in level_stats %}
+          <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span>{{ item.level or 'غير محدد' }}</span>
+            <span class="badge rounded-pill bg-primary-subtle text-primary-emphasis">{{ item.total }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">لا توجد بيانات بعد</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm rounded-4 h-100">
+      <div class="card-body">
+        <h4 class="mb-3">أنواع الحوادث</h4>
+        {% if damage_type_stats %}
+        <div class="list-group list-group-flush">
+          {% for item in damage_type_stats %}
+          <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span>{{ item.damage_type or 'غير محدد' }}</span>
+            <span class="badge rounded-pill bg-danger-subtle text-danger-emphasis">{{ item.total }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">لا توجد حوادث مسجلة</p>
+        {% endif %}
+      </div>
     </div>
   </div>
 </div>
@@ -32,23 +80,25 @@
   <div class="card-body">
     <h4 class="mb-3">أحدث الطلاب</h4>
     <div class="table-responsive">
-      <table class="table align-middle">
+      <table class="table align-middle text-center">
         <thead>
           <tr>
             <th>اسم الطالب</th>
             <th>المستوى</th>
             <th>القسم</th>
             <th>آخر تقييم</th>
+            <th>متوسطه</th>
             <th>عرض</th>
           </tr>
         </thead>
         <tbody>
           {% for student in recent_students %}
           <tr>
-            <td>{{ student.full_name }}</td>
+            <td class="arabic-text">{{ student.full_name }}</td>
             <td>{{ student.level }}</td>
             <td>{{ student.department or 'غير محدد' }}</td>
             <td>{{ student.score if student.score is not none else 'لا يوجد' }}</td>
+            <td>{{ '%.1f'|format(student.avg_score|float) if student.avg_score is not none else '0.0' }}</td>
             <td><a href="{{ url_for('student_detail', student_id=student.id) }}" class="btn btn-sm btn-outline-primary">تفاصيل</a></td>
           </tr>
           {% endfor %}

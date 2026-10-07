@@ -16,16 +16,23 @@ body {
   background: #eee9e9;
   color: #fff;
   font-family: 'Segoe UI', Tahoma, sans-serif;
+  direction: rtl;
+  text-align: right;
 }
-h2{
-  color: #000000;
+
+h1, h2, h3, h4, h5, h6,
+.main-title,
+.arabic-text {
+  direction: rtl;
+  unicode-bidi: plaintext;
 }
+
 main.container {
   max-width: 1280px;
 }
 
 .navbar {
-  background:#6a111f;
+  background: #6a111f;
   border-bottom: 3px solid #f4d35e;
 }
 
@@ -188,6 +195,16 @@ main.container {
   border-left-color: #af1c34;
 }
 
+.stat-card.success {
+  border-left-color: #1f8a5d;
+}
+
+.stat-title {
+  color: #5e2d35;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+
 .stat-value {
   font-size: 2.3rem;
   font-weight: 800;
@@ -314,6 +331,22 @@ main.container {
   max-height: 220px;
   border-radius: 12px;
   object-fit: cover;
+  margin-top: 10px;
+}
+
+.arabic-text,
+.form-label,
+.navbar-nav,
+.btn,
+.table,
+.alert,
+.card-body,
+.stat-title,
+.stat-value,
+.small,
+.text-muted {
+  direction: rtl;
+  unicode-bidi: plaintext;
 }
 
 @media (max-width: 768px) {
@@ -351,10 +384,11 @@ main.container {
     text-align: center !important;
   }
 }
-small{
-  color:#000;
-font-weight: 600;
-font-family: Arial, Helvetica, sans-serif;
+
+small {
+  color: #000;
+  font-weight: 600;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 /* Print layout for QR bundle: 2 columns x 4 rows per A4 page */

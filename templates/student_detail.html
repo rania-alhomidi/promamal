@@ -10,10 +10,9 @@
   <div class="col-12 col-lg-4">
     <div class="card shadow-sm rounded-4 h-100 student-profile-card">
       <div class="card-body text-center">
-        {% set photo = '/static/uploads/' + student.photo if student.photo and student.photo != 'default_student.png'
-        else '/static/default_student.png' %}
+        {% set photo = '/static/uploads/' + student.photo if student.photo and student.photo != 'default_student.png' else '/static/default_student.png' %}
         <img src="{{ photo }}" alt="student image" class="student-large-img">
-        <h3 class="mt-3 mb-2">{{ student.full_name }}</h3>
+        <h3 class="mt-3 mb-2 arabic-text">{{ student.full_name }}</h3>
         <p class="text-muted mb-1">رقم الطالب: {{ student.student_number }}</p>
         <p class="text-muted mb-1">المستوى: {{ student.level }}</p>
         <p class="text-muted mb-1">القسم: {{ student.department or 'غير محدد' }}</p>
@@ -22,8 +21,7 @@
         {% if student.qr_code %}
         <div class="qr-box">
           <a href="{{ url_for('student_detail', student_id=student.id, public=1) }}" class="qr-link">
-            <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}"
-              alt="QR code" class="qr-image">
+            <img src="{{ url_for('static', filename='qrcodes/student_' + student.id|string + '_qr.png') }}" alt="QR code" class="qr-image">
           </a>
           <p class="small mt-2 mb-0">{{ student.qr_code }}</p>
         </div>
@@ -82,12 +80,11 @@
     <div class="card shadow-sm rounded-4">
       <div class="card-body">
         <h4>إضافة ضرر / حادث</h4>
-        <form method="POST" action="{{ url_for('report_damage', student_id=student.id) }}"
-          enctype="multipart/form-data">
+        <form method="POST" action="{{ url_for('report_damage', student_id=student.id) }}" enctype="multipart/form-data">
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label">نوع الضرر</label>
-              <select name="damage_type" class="form-select" required>
+              <select name="damage_type[]" class="form-select" required>
                 <option value="">اختر</option>
                 <option value="تخريب">تخريب</option>
                 <option value="كسر">كسر</option>
@@ -96,18 +93,18 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">صورة الضرر</label>
-              <input type="file" name="damage_photo" class="form-control" accept="image/*" capture="environment">
+              <label class="form-label">صور الضرر</label>
+              <input type="file" name="damage_photo[]" class="form-control" accept="image/*" multiple capture="environment">
             </div>
           </div>
 
           <div class="mt-3">
             <label class="form-label">تفاصيل الضرر</label>
-            <textarea name="description" rows="3" class="form-control"></textarea>
+            <textarea name="description[]" rows="3" class="form-control"></textarea>
           </div>
 
           <div class="mt-3 text-end">
-            <button class="btn btn-danger">حفظ الضرر</button>
+            <button class="btn btn-danger">حفظ الحادث</button>
           </div>
         </form>
       </div>
@@ -149,7 +146,10 @@
             <div>{{ item.description or 'لا توجد تفاصيل' }}</div>
             <div class="small text-muted">{{ item.report_date }}</div>
             {% if item.damage_photo %}
-            <img src="{{ '/static/uploads/' + item.damage_photo }}" class="damage-image mt-2">
+            {% set photos = item.damage_photo.split(',') %}
+            {% for photo_name in photos if photo_name %}
+            <img src="{{ '/static/uploads/' + photo_name }}" class="damage-image mt-2">
+            {% endfor %}
             {% endif %}
           </div>
           {% endfor %}
