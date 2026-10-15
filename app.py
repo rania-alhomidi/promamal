@@ -17,6 +17,13 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from werkzeug.utils import secure_filename
 
 try:
+    import psycopg
+    from psycopg.rows import dict_row
+except Exception:  # pragma: no cover
+    psycopg = None
+    dict_row = None
+
+try:
     import arabic_reshaper
 except Exception:
     arabic_reshaper = None
@@ -38,7 +45,77 @@ app = Flask(__name__)
 app.secret_key = 'super-secret-lab-key-2026'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:promamal121@db.itippdkmyrrmvqaooneo.supabase.co:5432/postgres')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres.itippdkmyrrmvqaooneo:promamal121@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres')
+DB_BACKEND = 'sqlite'
+
+
+class PostgresCursorWrapper:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.lastrowid = getattr(cursor, 'lastrowid', None)
+
+    def execute(self, query, params=()):
+        if isinstance(query, str):
+            query = query.replace('?', '%s')
+        self._cursor.execute(query, params)
+        self.lastrowid = getattr(self._cursor, 'lastrowid', None)
+        return self
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def fetchmany(self, size=None):
+        return self._cursor.fetchmany(size) if size is not None else self._cursor.fetchmany()
+
+    def __getattr__(self, item):
+        return getattr(self._cursor, item)
+
+
+class PostgresConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, query, params=()):
+        if isinstance(query, str):
+            query = query.replace('?', '%s')
+        cursor = self._conn.cursor()
+        cursor.execute(query, params)
+        return PostgresCursorWrapper(cursor)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+    def __getattr__(self, item):
+        return getattr(self._conn, item)
+
+
+@app.context_processor
+def inject_user():
+    user = session.get('user')
+    return {'current_user': user}
+
+
+def get_db_connection():
+    global DB_BACKEND
+    if DATABASE_URL and psycopg is not None:
+        try:
+            conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+            DB_BACKEND = 'postgres'
+            return PostgresConnectionWrapper(conn)
+        except Exception:
+            pass
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    DB_BACKEND = 'sqlite'
+    return conn
+
 
 def build_student_search_filter(search_term):
     term = (search_term or '').strip()
@@ -52,20 +129,74 @@ def build_student_search_filter(search_term):
     )
 
 
-@app.context_processor
-def inject_user():
-    user = session.get('user')
-    return {'current_user': user}
-
-
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_db():
     conn = get_db_connection()
+    if DB_BACKEND == 'postgres':
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                full_name VARCHAR(255) NOT NULL,
+                role VARCHAR(50) NOT NULL DEFAULT 'supervisor'
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS students (
+                id SERIAL PRIMARY KEY,
+                full_name VARCHAR(255) NOT NULL,
+                student_number VARCHAR(100) UNIQUE NOT NULL,
+                level VARCHAR(100) NOT NULL,
+                department VARCHAR(100),
+                phone VARCHAR(50),
+                photo VARCHAR(255) DEFAULT 'default_student.png',
+                qr_code VARCHAR(255) UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS evaluations (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                supervisor_id INTEGER NOT NULL,
+                academic_year VARCHAR(50) NOT NULL,
+                score INTEGER NOT NULL,
+                rating VARCHAR(100) NOT NULL,
+                notes TEXT,
+                evaluation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS damage_reports (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                supervisor_id INTEGER NOT NULL,
+                damage_type VARCHAR(255) NOT NULL,
+                description TEXT,
+                damage_photo VARCHAR(255),
+                report_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        conn.commit()
+
+        created = conn.execute('SELECT id FROM users WHERE username = ?', ('asma',)).fetchone()
+        if created is None:
+            conn.execute(
+                'INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
+                ('asma', 'asma9090', 'Supervisor', 'supervisor')
+            )
+            conn.commit()
+        conn.close()
+        return
+
     conn.execute(
         '''
         CREATE TABLE IF NOT EXISTS users (
