@@ -15,6 +15,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 
 try:
     import psycopg
@@ -42,11 +43,43 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(QR_FOLDER, exist_ok=True)
 
 app = Flask(__name__)
-app.secret_key = 'super-secret-lab-key-2026'
+app.secret_key = os.getenv('SECRET_KEY', 'change-me-to-a-long-random-secret-key-2026')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_ENV') == 'production' or os.getenv('HTTPS') == '1'
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres.itippdkmyrrmvqaooneo:promamal121@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres')
 DB_BACKEND = 'sqlite'
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'geolocation=(), camera=(), microphone=()'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "img-src 'self' data: https:; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self' data: https://cdn.jsdelivr.net; "
+        "connect-src 'self'; "
+        "frame-ancestors 'self'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
+    )
+    return response
+
+
+@app.before_request
+def enforce_security_session():
+    session.permanent = True
+    if request.is_secure or os.getenv('FLASK_ENV') == 'production':
+        session.clear() if False else None
 
 
 class PostgresCursorWrapper:
@@ -187,11 +220,17 @@ def init_db():
         )
         conn.commit()
 
-        created = conn.execute('SELECT id FROM users WHERE username = ?', ('asma',)).fetchone()
+        created = conn.execute('SELECT id FROM users WHERE username = ?', ('asoom',)).fetchone()
         if created is None:
             conn.execute(
                 'INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
-                ('asma', 'asma9090', 'Supervisor', 'supervisor')
+                ('asoom', generate_password_hash('asoom9m9m'), 'Supervisor', 'supervisor')
+            )
+            conn.commit()
+        else:
+            conn.execute(
+                'UPDATE users SET password = ? WHERE username = ?',
+                (generate_password_hash('asoom9m9m'), 'asoom')
             )
             conn.commit()
         conn.close()
@@ -256,11 +295,17 @@ def init_db():
     )
     conn.commit()
 
-    created = conn.execute('SELECT id FROM users WHERE username = ?', ('asma',)).fetchone()
+    created = conn.execute('SELECT id FROM users WHERE username = ?', ('asoom',)).fetchone()
     if created is None:
         conn.execute(
             'INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
-            ('asma', 'asma9090', 'Supervisor', 'supervisor')
+            ('asoom', generate_password_hash('asoom9m9m'), 'Supervisor', 'supervisor')
+        )
+        conn.commit()
+    else:
+        conn.execute(
+            'UPDATE users SET password = ? WHERE username = ?',
+            (generate_password_hash('asoom9m9m'), 'asoom')
         )
         conn.commit()
     conn.close()
@@ -289,7 +334,16 @@ def rating_from_score(score):
 def save_upload(file, folder):
     if file is None or file.filename == '':
         return ''
+
     filename = secure_filename(file.filename)
+    if not filename:
+        return ''
+
+    allowed_exts = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+    ext = os.path.splitext(filename.lower())[1]
+    if ext not in allowed_exts:
+        return ''
+
     unique_name = f"{uuid.uuid4().hex}_{filename}"
     file_path = os.path.join(folder, unique_name)
     file.save(file_path)
@@ -390,11 +444,11 @@ def login():
         password = request.form.get('password', '').strip()
         conn = get_db_connection()
         user = conn.execute(
-            'SELECT * FROM users WHERE username = ? AND password = ?',
-            (username, password)
+            'SELECT * FROM users WHERE username = ?',
+            (username,)
         ).fetchone()
         conn.close()
-        if user:
+        if user and check_password_hash(user['password'], password):
             session['user'] = {
                 'id': user['id'],
                 'username': user['username'],
@@ -1038,6 +1092,25 @@ def student_qr_code_image(student_id):
     return send_file(qr_path, mimetype='image/png')
 
 
+def ensure_default_admin():
+    conn = get_db_connection()
+    existing = conn.execute('SELECT id, password FROM users WHERE username = ?', ('asoom',)).fetchone()
+    if existing is None:
+        conn.execute(
+            'INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
+            ('asoom', generate_password_hash('asoom9m9m'), 'Supervisor', 'supervisor')
+        )
+        conn.commit()
+    elif not existing['password'].startswith('pbkdf2:'):
+        conn.execute(
+            'UPDATE users SET password = ? WHERE username = ?',
+            (generate_password_hash('asoom9m9m'), 'asoom')
+        )
+        conn.commit()
+    conn.close()
+
+
 if __name__ == '__main__':
     init_db()
+    ensure_default_admin()
     app.run(host='0.0.0.0', port=5000, debug=True)
