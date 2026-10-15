@@ -348,6 +348,8 @@ def ensure_arabic_font():
         r'C:\Windows\Fonts\tahoma.ttf',
         r'C:\Windows\Fonts\times.ttf',
         r'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        r'/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+        r'/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf',
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -841,7 +843,8 @@ def export_pdf():
     rows = conn.execute(query, params).fetchall()
     conn.close()
 
-    data = [['اسم الطالب', 'المستوى', 'القسم', 'التقييم', 'النقاط', 'الحوادث']]
+    ensure_arabic_font()
+    data = [[shape_text_for_pdf('اسم الطالب'), shape_text_for_pdf('المستوى'), shape_text_for_pdf('القسم'), shape_text_for_pdf('التقييم'), shape_text_for_pdf('النقاط'), shape_text_for_pdf('الحوادث')]]
     for row in rows:
         data.append([
             shape_text_for_pdf(row['full_name'] or ''),
@@ -857,8 +860,8 @@ def export_pdf():
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#6A111F')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTNAME', (0, 0), (-1, 0), 'ArabicFont'),
+        ('FONTNAME', (0, 1), (-1, -1), 'ArabicFont'),
         ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -871,8 +874,9 @@ def export_pdf():
     ]))
 
     styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('TitleArabic', parent=styles['Title'], fontName='ArabicFont', fontSize=16, alignment=1, textColor=colors.HexColor('#4B0F1A'))
     story = [
-        Paragraph(shape_text_for_pdf('تقرير الطلاب'), ParagraphStyle('Title', parent=styles['Title'], fontName='Helvetica-Bold', fontSize=16, alignment=1, textColor=colors.HexColor('#4B0F1A'))),
+        Paragraph(shape_text_for_pdf('تقرير الطلاب'), title_style),
         Spacer(1, 15),
         table,
     ]
